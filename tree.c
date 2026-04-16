@@ -145,7 +145,7 @@ int tree_from_index(ObjectID *tree_id_out) {
 
         // Format: "blob <hash> <name>\n"
         offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                           "blob %s %s\n", hash, path
+                           "blob %s %s\n", hash, path);
     }
     fclose(f);
 
