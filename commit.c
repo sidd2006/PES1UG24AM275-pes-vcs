@@ -194,8 +194,69 @@ int head_update(const ObjectID *new_commit) {
 //
 // Returns 0 on success, -1 on error.
 int commit_create(const char *message, ObjectID *commit_id_out) {
-    // TODO: Implement commit creation
-    // (See Lab Appendix for logical steps)
-    (void)message; (void)commit_id_out;
-    return -1;
+    // Step 0: Ensure .pes/HEAD exists (for first commit)
+    FILE *f = fopen(HEAD_FILE, "r");
+    if (!f) {
+        // First commit - create HEAD pointing to refs/heads/main
+        mkdir(".pes", 0755);
+        mkdir(".pes/refs", 0755);
+        mkdir(".pes/refs/heads", 0755);
+        f = fopen(HEAD_FILE, "w");
+        if (!f) return -1;
+        fprintf(f, "ref: refs/heads/main\n");
+        fclose(f);
+    } else {
+        fclose(f);
+    }
+
+    // Step 1: Load the index
+    Index index;
+    if (index_load(&index) != 0) {
+        return -1;
+    }
+
+    // Step 2: Create a tree from the index
+    ObjectID tree_id;
+    if (tree_from_index(&tree_id) != 0) {
+        return -1;
+    }
+
+    // Step 3: Read parent if it exists
+    ObjectID parent_id;
+    int has_parent = (head_read(&parent_id) == 0);
+
+    // Step 4: Create commit struct
+    Commit commit;
+    commit.tree = tree_id;
+    if (has_parent) {
+        commit.parent = parent_id;
+        commit.has_parent = 1;
+    } else {
+        commit.has_parent = 0;
+    }
+    strcpy(commit.author, pes_author());
+    commit.timestamp = (uint64_t)time(NULL);
+    strcpy(commit.message, message);
+
+    // Step 5: Serialize the commit
+    void *commit_data;
+    size_t commit_len;
+    if (commit_serialize(&commit, &commit_data, &commit_len) != 0) {
+        return -1;
+    }
+
+    // Step 6: Write commit object
+    if (object_write(OBJ_COMMIT, commit_data, commit_len, commit_id_out) != 0) {
+        free(commit_data);
+        return -1;
+    }
+
+    free(commit_data);
+
+    // Step 7: Update HEAD to point to the new commit
+    if (head_update(commit_id_out) != 0) {
+        return -1;
+    }
+
+    return 0;
 }
