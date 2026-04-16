@@ -232,7 +232,6 @@ int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_
 
     fclose(f);
 
-    // Step 3: Verify integrity - recompute hash
     ObjectID computed_id;
     compute_hash(file_data, file_size, &computed_id);
 
