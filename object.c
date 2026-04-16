@@ -232,15 +232,14 @@ int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_
 
     fclose(f);
 
-      // Step 3: Read file
-    void *data = malloc(size);
-    if (!data) {
-        fclose(f);
-        return -1;
-    }
+    // Step 3: Verify integrity - recompute hash
+    ObjectID computed_id;
+    compute_hash(file_data, file_size, &computed_id);
 
-    fread(data, 1, size, f);
-    fclose(f);
+    if (memcmp(&computed_id, id, sizeof(ObjectID)) != 0) {
+        free(file_data);
+        return -1;  // Corruption detected
+    }
 
     // Step 4: Parse header to find type and data
     char *null_pos = (char *)memchr(file_data, '\0', file_size);

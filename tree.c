@@ -147,3 +147,11 @@ int tree_from_index(ObjectID *tree_id_out) {
         offset += snprintf(buffer + offset, sizeof(buffer) - offset,
                            "blob %s %s\n", hash, path);
     }
+    fclose(f);
+
+    // Store as tree object
+    if (object_write(OBJ_TREE, buffer, offset, tree_id_out) != 0)
+        return -1;
+
+    return 0;
+}
