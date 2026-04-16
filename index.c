@@ -227,7 +227,7 @@ int index_add(Index *idx, const char *path) {
     rewind(f);
 
     // Step 3: read file
-    void *data = malloc(size);
+    void *data = malloc(size);//malloc is used herer
     if (!data) {
         fclose(f);
         return -1;
