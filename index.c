@@ -23,6 +23,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <time.h>
+
+// Forward declaration for object_write
+int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
 
 // ─── PROVIDED ────────────────────────────────────────────────────────────────
 
@@ -66,7 +70,7 @@ int index_status(const Index *index) {
         printf("  staged:     %s\n", index->entries[i].path);
         staged_count++;
     }
-    if (staged_count == 0) printf("  (nothing to show)\n");
+    if (staged_count == 0) printf("  (nothing)\n");
     printf("\n");
 
     printf("Unstaged changes:\n");
@@ -84,7 +88,7 @@ int index_status(const Index *index) {
             }
         }
     }
-    if (unstaged_count == 0) printf("  (nothing to show)\n");
+    if (unstaged_count == 0) printf("  (nothing)\n");
     printf("\n");
 
     printf("Untracked files:\n");
@@ -119,7 +123,7 @@ int index_status(const Index *index) {
         }
         closedir(dir);
     }
-    if (untracked_count == 0) printf("  (nothing to show)\n");
+    if (untracked_count == 0) printf("  (nothing)\n");
     printf("\n");
 
     return 0;
@@ -148,12 +152,17 @@ int index_load(Index *idx) {
 
     while (fgets(line, sizeof(line), f)) {
         char hash[65], path[512];
+        uint32_t mode, size;
+        uint64_t mtime_sec;
 
-        if (sscanf(line, "%s %s", hash, path) != 2)
+        if (sscanf(line, "%o %64s %lu %u %511s", &mode, hash, &mtime_sec, &size, path) != 5)
             continue;
 
-        hex_to_hash(hash, &idx->entries[idx->count].id);
+        hex_to_hash(hash, &idx->entries[idx->count].hash);
         strcpy(idx->entries[idx->count].path, path);
+        idx->entries[idx->count].mode = mode;
+        idx->entries[idx->count].mtime_sec = mtime_sec;
+        idx->entries[idx->count].size = size;
 
         idx->count++;
     }
@@ -172,15 +181,20 @@ int index_load(Index *idx) {
 //   - rename                           : atomically moving the temp file over the old index
 //
 // Returns 0 on success, -1 on error.
-int index_save(Index *idx) {
+int index_save(const Index *index) {
     FILE *f = fopen(".pes/index", "w");
     if (!f) return -1;
 
-    for (int i = 0; i < idx->count; i++) {
+    for (int i = 0; i < index->count; i++) {
         char hash_hex[65];
-        hash_to_hex(&idx->entries[i].id, hash_hex);
+        hash_to_hex(&index->entries[i].hash, hash_hex);
 
-        fprintf(f, "%s %s\n", hash_hex, idx->entries[i].path);
+        fprintf(f, "%o %s %lu %u %s\n", 
+                index->entries[i].mode,
+                hash_hex,
+                index->entries[i].mtime_sec,
+                index->entries[i].size,
+                index->entries[i].path);
     }
 
     fclose(f);
@@ -197,17 +211,32 @@ int index_save(Index *idx) {
 //
 // Returns 0 on success, -1 on error.
 int index_add(Index *idx, const char *path) {
+    // Ensure .pes directories exist
+    mkdir(".pes", 0755);
+    mkdir(".pes/objects", 0755);
+    mkdir(".pes/refs", 0755);
+    mkdir(".pes/refs/heads", 0755);
+
+    // Step 1: open file
     FILE *f = fopen(path, "rb");
     if (!f) return -1;
 
+    // Step 2: get size
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
     rewind(f);
 
+    // Step 3: read file
     void *data = malloc(size);
+    if (!data) {
+        fclose(f);
+        return -1;
+    }
+
     fread(data, 1, size, f);
     fclose(f);
 
+    // Step 4: store blob (object_write still needed)
     ObjectID id;
     if (object_write(OBJ_BLOB, data, size, &id) != 0) {
         free(data);
@@ -216,10 +245,32 @@ int index_add(Index *idx, const char *path) {
 
     free(data);
 
-    // Add entry
+    // Step 5: get file metadata
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        return -1;
+    }
+
+    // Step 6: check if already exists
+    for (int i = 0; i < idx->count; i++) {
+        if (strcmp(idx->entries[i].path, path) == 0) {
+            idx->entries[i].size = size;
+            idx->entries[i].mtime_sec = st.st_mtime;
+            idx->entries[i].mode = st.st_mode;
+
+            // save and return
+            return index_save(idx);
+        }
+    }
+
+    // Step 7: add new entry
     strcpy(idx->entries[idx->count].path, path);
-    idx->entries[idx->count].id = id;
+    idx->entries[idx->count].hash = id;
+    idx->entries[idx->count].size = size;
+    idx->entries[idx->count].mtime_sec = st.st_mtime;
+    idx->entries[idx->count].mode = st.st_mode;
     idx->count++;
 
-    return 0;
+    // Step 8: SAVE (CRUCIAL)
+    return index_save(idx);
 }
