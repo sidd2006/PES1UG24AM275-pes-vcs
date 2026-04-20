@@ -10,6 +10,7 @@
 //   "100644 hello.txt\0" followed by 32 raw bytes of SHA-256
 
 // Serialize each index entry into tree format
+
 #include "tree.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -115,44 +116,77 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
     return 0;
 }
 
-// ─── TODO: Implement these ──────────────────────────────────────────────────
+// Forward declaration
+int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
 
-// Build a tree hierarchy from the current index and write all tree
-// objects to the object store.
-//
-// HINTS - Useful functions and concepts for this phase:
-//   - index_load      : load the staged files into memory
-//   - strchr          : find the first '/' in a path to separate directories from files
-//   - strncmp         : compare prefixes to group files belonging to the same subdirectory
-//   - Recursion       : you will likely want to create a recursive helper function 
-//                       (e.g., `write_tree_level(entries, count, depth)`) to handle nested dirs.
-//   - tree_serialize  : convert your populated Tree struct into a binary buffer
-//   - object_write    : save that binary buffer to the store as OBJ_TREE
-//
-// Returns 0 on success, -1 on error.
-int tree_from_index(ObjectID *tree_id_out) {
-    FILE *f = fopen(".pes/index", "r");
-    if (!f) return -1;
+// Helper: recursively write a tree level for entries sharing a common prefix
+// entries: array of IndexEntry pointers at this level
+// count: number of entries
+// prefix: directory prefix for this level (e.g. "src/", or "" for root)
+static int write_tree_level(IndexEntry *entries, int count, const char *prefix, ObjectID *out) {
+    Tree tree;
+    tree.count = 0;
 
-    char line[1024];
-    char buffer[8192] = {0};
-    size_t offset = 0;
+    int i = 0;
+    while (i < count) {
+        const char *path = entries[i].path;
+        // Strip the prefix
+        const char *rel = path + strlen(prefix);
+        const char *slash = strchr(rel, '/');
 
-    while (fgets(line, sizeof(line), f)) {
-        char hash[65], path[512];
+        if (!slash) {
+            // It's a file at this level
+            TreeEntry *te = &tree.entries[tree.count++];
+            te->mode = entries[i].mode ? entries[i].mode : 0100644;
+            strncpy(te->name, rel, sizeof(te->name) - 1);
+            te->name[sizeof(te->name) - 1] = '\0';
+            te->hash = entries[i].hash;
+            i++;
+        } else {
+            // It's a subdirectory — collect all entries with same dir prefix
+            size_t dir_len = slash - rel;
+            char dir_name[256];
+            strncpy(dir_name, rel, dir_len);
+            dir_name[dir_len] = '\0';
 
-        if (sscanf(line, "%s %s", hash, path) != 2)
-            continue;
+            // Build new prefix for recursion
+            char sub_prefix[512];
+            snprintf(sub_prefix, sizeof(sub_prefix), "%s%s/", prefix, dir_name);
 
-        // Format: "blob <hash> <name>\n"
-        offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                           "blob %s %s\n", hash, path);
+            // Find how many entries share this subdir
+            int j = i;
+            while (j < count && strncmp(entries[j].path + strlen(prefix), dir_name, dir_len) == 0
+                   && entries[j].path[strlen(prefix) + dir_len] == '/') {
+                j++;
+            }
+
+            // Recurse
+            ObjectID sub_id;
+            if (write_tree_level(entries + i, j - i, sub_prefix, &sub_id) != 0)
+                return -1;
+
+            TreeEntry *te = &tree.entries[tree.count++];
+            te->mode = 0040000;
+            strncpy(te->name, dir_name, sizeof(te->name) - 1);
+            te->name[sizeof(te->name) - 1] = '\0';
+            te->hash = sub_id;
+
+            i = j;
+        }
     }
-    fclose(f);
 
-    // Store as tree object
-    if (object_write(OBJ_TREE, buffer, offset, tree_id_out) != 0)
-        return -1;
+    // Serialize and write
+    void *data;
+    size_t len;
+    if (tree_serialize(&tree, &data, &len) != 0) return -1;
+    int rc = object_write(OBJ_TREE, data, len, out);
+    free(data);
+    return rc;
+}
 
-    return 0;
+int tree_from_index(ObjectID *tree_id_out) {
+    Index idx;
+    if (index_load(&idx) != 0) return -1;
+    if (idx.count == 0) return -1;
+    return write_tree_level(idx.entries, idx.count, "", tree_id_out);
 }
