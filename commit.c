@@ -201,16 +201,24 @@ int head_update(const ObjectID *new_commit) {
 int commit_create(const char *message, ObjectID *commit_id_out) {
 
     // Step 1: Load index
-    Index index;
-    if (index_load(&index) != 0) {
+    Index *index = malloc(sizeof(Index));
+    if (!index) {
+        return -1;
+    }
+
+    if (index_load(index) != 0) {
+        free(index);
         return -1;
     }
 
     // Step 2: Create tree
     ObjectID tree_id;
     if (tree_from_index(&tree_id) != 0) {
+        free(index);
         return -1;
     }
+
+    free(index);
 
     // Step 3: Read parent (if exists)
     ObjectID parent_id;

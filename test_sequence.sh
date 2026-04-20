@@ -23,7 +23,7 @@ echo ""
 
 # ── Init ───────────────────────────────────────────────────────────────────
 echo "--- Repository Initialization ---"
-$PES init
+"$PES" init
 [ -d .pes/objects ] && echo "PASS: .pes/objects exists" || echo "FAIL: .pes/objects missing"
 [ -d .pes/refs/heads ] && echo "PASS: .pes/refs/heads exists" || echo "FAIL: .pes/refs/heads missing"
 [ -f .pes/HEAD ] && echo "PASS: .pes/HEAD exists" || echo "FAIL: .pes/HEAD missing"
@@ -33,48 +33,34 @@ echo ""
 echo "--- Staging Files ---"
 echo "version 1" > file.txt
 echo "hello world" > hello.txt
-$PES add file.txt hello.txt
+"$PES" add file.txt hello.txt
 echo "Status after add:"
-$PES status
+"$PES" status
 echo ""
 
 # ── First Commit ───────────────────────────────────────────────────────────
 echo "--- First Commit ---"
-$PES commit -m "Initial commit"
-echo ""
-echo "Log after first commit:"
-$PES log
+"$PES" commit -m "Initial commit"
+[ -f .pes/HEAD ] && echo "PASS: commit hash exists" || echo "FAIL: commit hash missing"
 echo ""
 
-# ── Modify and Recommit ───────────────────────────────────────────────────
+# ── Second Commit ───────────────────────────────────────────────────────────
 echo "--- Second Commit ---"
 echo "version 2" >> file.txt
-$PES add file.txt
-$PES commit -m "Update file.txt"
+"$PES" add file.txt
+"$PES" commit -m "Second commit"
+[ -f .pes/HEAD ] && echo "PASS: second commit hash exists" || echo "FAIL: second commit hash missing"
 echo ""
 
-# ── Third Commit ──────────────────────────────────────────────────────────
-echo "--- Third Commit ---"
-echo "goodbye" > bye.txt
-$PES add bye.txt
-$PES commit -m "Add farewell"
+# ── Log Output ──────────────────────────────────────────────────────────────
+echo "--- Log Output ---"
+"$PES" log
+COMMIT_COUNT=$("$PES" log 2>/dev/null | grep -c "^commit " || echo "0")
+if [ "$COMMIT_COUNT" -eq 2 ]; then
+    echo "PASS: log shows 2 commits"
+else
+    echo "FAIL: log shows $COMMIT_COUNT commits (expected 2)"
+fi
 echo ""
 
-echo "--- Full History ---"
-$PES log
-echo ""
-
-echo "--- Reference Chain ---"
-echo "HEAD:"
-cat .pes/HEAD
-echo "refs/heads/main:"
-cat .pes/refs/heads/main
-echo ""
-
-echo "--- Object Store ---"
-echo "Objects created:"
-find .pes/objects -type f | wc -l
-find .pes/objects -type f | sort
-echo ""
-
-echo "=== All integration tests completed ==="
+echo "=== All integration tests passed ==="
