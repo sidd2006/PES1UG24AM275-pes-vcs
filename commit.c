@@ -17,7 +17,7 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
 int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_t *len_out);
 
 // ─────────────────────────────────────────────────────────────
-// PROVIDED (unchanged)
+// PROVIDED
 // ─────────────────────────────────────────────────────────────
 
 int commit_parse(const void *data, size_t len, Commit *commit_out) {
@@ -239,7 +239,7 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
     // Step 6: Write object
     if (object_write(OBJ_COMMIT, data, len, commit_id_out) != 0) {
         free(data);
-        return -1;
+        return -1;  
     }
 
     free(data);
